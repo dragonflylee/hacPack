@@ -40,6 +40,18 @@ typedef enum
 } section_crypt_type_t;
 
 /* NCA FS header. */
+/* FS header compression info (offset 0x178). A non-zero table_offset means the
+ * section data contains a BKTR compression layer. */
+#pragma pack(push, 1)
+typedef struct
+{
+    uint64_t table_offset;     /* Relative to section start. */
+    uint64_t table_size;
+    uint8_t table_header[0x10]; /* BucketTree header. */
+    uint64_t reserved;
+} nca_compression_info_t;
+#pragma pack(pop)
+
 #pragma pack(push, 1)
 typedef struct
 {
@@ -51,9 +63,12 @@ typedef struct
     union { /* FS-specific superblock. Size = 0x138. */
         pfs0_superblock_t pfs0_superblock;
         romfs_superblock_t romfs_superblock;
+        uint8_t raw_superblock[0x138];
     };
     uint8_t section_ctr[0x8];
-    uint8_t _0x148[0xB8]; /* Padding. */
+    uint8_t _0x148[0x30]; /* Padding. */
+    nca_compression_info_t compression_info;
+    uint8_t _0x1A0[0x60]; /* Padding. */
 } nca_fs_header_t;
 #pragma pack(pop)
 
@@ -97,6 +112,7 @@ void nca_create_program(hp_settings_t *settings);
 void nca_create_meta(hp_settings_t *settings);
 void nca_write_padding(FILE *nca_file);
 void nca_write_file(FILE *nca_file, filepath_t *ivfc_level_path);
+void nca_write_section_romfs(FILE *nca_file, filepath_t *ivfc_lvls_path);
 void nca_calculate_section_hash(nca_fs_header_t *fs_header, uint8_t *out_section_hash);
 void nca_calculate_hash(FILE *nca_file, unsigned char *out_nca_hash);
 void nca_encrypt_key_area(nca_header_t *nca_header, hp_settings_t *settings);

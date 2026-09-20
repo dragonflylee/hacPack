@@ -37,6 +37,7 @@ static void usage(void)
             "--keyareakey             Set key area key 2 in hex with 16 bytes length\n"
             "--ncasig                 Set nca signature type [zero, static, random]. Default is zero\n"
             "--disttype               Set nca distribution type [download, gamecard]. Default is download\n"
+            "--compress               Enable NCA section compression with LZ4 (level 1-3). Default is disabled\n"
             "--ncasig1privatekey      Set private key filepath for signing nca signature 1 with PEM format\n"
             "Program NCA options:\n"
             "--exefsdir               Set program exefs directory path\n"
@@ -159,6 +160,7 @@ int main(int argc, char **argv)
                 {"ncasig", 1, NULL, 30},
                 {"ncasig2privatekey", 1, NULL, 31},
                 {"ncasig2modulus", 1, NULL, 32},
+                {"compress", 1, NULL, 33},
                 {NULL, 0, NULL, 0},
             };
 
@@ -343,6 +345,15 @@ int main(int argc, char **argv)
             break;
         case 32:
             filepath_set(&settings.nca_sig2_modulus, optarg);
+            break;
+        case 33:
+            settings.compress_level = atoi(optarg);
+            // NCA compression only supports LZ4 (levels 1-3)
+            if (settings.compress_level < 0 || settings.compress_level > 3)
+            {
+                fprintf(stderr, "Invalid compress level: %i, compress level range: 0-3\n", settings.compress_level);
+                return EXIT_FAILURE;
+            }
             break;
         default:
             usage();

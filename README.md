@@ -45,6 +45,7 @@ NCA general options:
 --keyareakey             Set key area key 2 in hex with 16 bytes length  
 --ncasig                 Set nca signature type [zero, static, random]. Default is zero  
 --disttype               Set nca distribution type [download, gamecard]. Default is download  
+--compress               Enable NCA section compression with LZ4 (level 1-3). Default is disabled  
 --ncasig1privatekey      Set private key filepath for signing nca signature 1 with PEM format  
 Program NCA options:  
 --exefsdir               Set program exefs directory path  

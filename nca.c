@@ -4,12 +4,80 @@
 #include <inttypes.h>
 #include <time.h>
 #include "nca.h"
+#include "bktr.h"
 #include "sha.h"
 #include "filepath.h"
 #include "romfs.h"
 #include "cnmt.h"
 #include "ticket.h"
 #include "rsa.h"
+
+/* Builds the compression layer for a section's raw RomFS payload (IVFC level 6)
+ * and updates `fs_header` to describe the compressed bytes. Returns the
+ * compressed layer size, or 0 on failure. */
+static uint64_t nca_build_section_compression(hp_settings_t *settings, filepath_t *romfs_path, filepath_t *out_path, nca_fs_header_t *fs_header)
+{
+    if (settings->compress_level <= 0)
+        return 0;
+
+    uint64_t virtual_size = fs_header->romfs_superblock.ivfc_header.level_headers[5].hash_data_size;
+    nca_compress_result_t result;
+
+    printf("Compressing IVFC level 6 (%" PRIu64 " bytes) with level %i\n", virtual_size, settings->compress_level);
+
+    FILE *data_file = os_fopen(romfs_path->os_path, OS_MODE_READ);
+    if (data_file == NULL)
+    {
+        fprintf(stderr, "Failed to open %s!\n", romfs_path->char_path);
+        exit(EXIT_FAILURE);
+    }
+
+    if (nca_compress_build(data_file, virtual_size, settings->compress_level, &settings->temp_dir, &result) != 0)
+    {
+        fclose(data_file);
+        fprintf(stderr, "Failed to build NCA compression layer!\n");
+        exit(EXIT_FAILURE);
+    }
+    fclose(data_file);
+
+    /* Write the layer to a temporary file so it can be hashed as level 6. */
+    FILE *layer_file = os_fopen(out_path->os_path, OS_MODE_WRITE_EDIT);
+    if (layer_file == NULL)
+    {
+        fprintf(stderr, "Failed to create %s!\n", out_path->char_path);
+        exit(EXIT_FAILURE);
+    }
+
+    nca_compress_write(&result, layer_file, &settings->temp_dir, fs_header, result.table_offset, result.entry_data_size);
+
+    fseeko64(layer_file, 0, SEEK_END);
+    uint64_t compressed_size = (uint64_t)ftello64(layer_file);
+
+    /* Pad to a 0x4000 multiple so level-4 hashes cover full blocks. The
+     * reported level-6 size stays the unpadded compressed size. */
+    uint64_t padding_size = NCA_COMPRESS_BLOCK_SIZE - (compressed_size % NCA_COMPRESS_BLOCK_SIZE);
+    if (padding_size != NCA_COMPRESS_BLOCK_SIZE)
+    {
+        unsigned char *padding = (unsigned char *)calloc(1, (size_t)padding_size);
+        fwrite(padding, 1, (size_t)padding_size, layer_file);
+        free(padding);
+    }
+
+    fclose(layer_file);
+
+    nca_compress_result_free(&result);
+    return compressed_size;
+}
+
+/* Writes the section's IVFC level files (levels 1-6) to the NCA, in order. */
+void nca_write_section_romfs(FILE *nca_file, filepath_t *ivfc_lvls_path)
+{
+    for (int c = 0; c < 6; c++)
+    {
+        printf("Writing %s to NCA\n", ivfc_lvls_path[c].char_path);
+        nca_write_file(nca_file, &ivfc_lvls_path[c]);
+    }
+}
 
 void nca_create_romfs_type(hp_settings_t *settings, char *nca_type)
 {
@@ -52,6 +120,25 @@ void nca_create_romfs_type(hp_settings_t *settings, char *nca_type)
     romfs_build(&settings->romfs_dir, &ivfc_lvls_path[5], &nca_header.fs_headers[0].romfs_superblock.ivfc_header.level_headers[5].hash_data_size);
     nca_header.fs_headers[0].romfs_superblock.ivfc_header.level_headers[5].block_size = 0x0E; // 0x4000
 
+    // Compress: replace level 6's data with the compression layer.
+    if (settings->compress_level > 0)
+    {
+        filepath_t comp_layer_path;
+        filepath_init(&comp_layer_path);
+        filepath_copy(&comp_layer_path, &settings->temp_dir);
+        filepath_append(&comp_layer_path, "%s_sec0_compressed", nca_type);
+
+        uint64_t compressed_size = (uint64_t)nca_build_section_compression(settings, &ivfc_lvls_path[5], &comp_layer_path, &nca_header.fs_headers[0]);
+        if (compressed_size == 0)
+        {
+            fprintf(stderr, "Failed to build NCA compression layer!\n");
+            exit(EXIT_FAILURE);
+        }
+
+        filepath_copy(&ivfc_lvls_path[5], &comp_layer_path);
+        nca_header.fs_headers[0].romfs_superblock.ivfc_header.level_headers[5].hash_data_size = compressed_size;
+    }
+
     // Create IVFC levels
     printf("\n===> Creating IVFC levels\n");
     for (int b = 4; b >= 0; b--)
@@ -67,12 +154,8 @@ void nca_create_romfs_type(hp_settings_t *settings, char *nca_type)
         nca_header.fs_headers[0].romfs_superblock.ivfc_header.level_headers[i].logical_offset = nca_header.fs_headers[0].romfs_superblock.ivfc_header.level_headers[i - 1].logical_offset + nca_header.fs_headers[0].romfs_superblock.ivfc_header.level_headers[i - 1].hash_data_size;
 
     // Write IVFC levels
-    printf("\n===> Writing IVFC levels\n");
-    for (int c = 0; c < 6; c++)
-    {
-        printf("Writing %s to %s\n", ivfc_lvls_path[c].char_path, romfs_nca_path.char_path);
-        nca_write_file(romfs_nca_file, &ivfc_lvls_path[c]);
-    }
+    printf("\n===> Writing section 0 data\n");
+    nca_write_section_romfs(romfs_nca_file, ivfc_lvls_path);
 
     // Write Padding if required
     nca_write_padding(romfs_nca_file);
@@ -293,6 +376,25 @@ void nca_create_program(hp_settings_t *settings)
         romfs_build(&settings->romfs_dir, &ivfc_lvls_path[5], &nca_header.fs_headers[1].romfs_superblock.ivfc_header.level_headers[5].hash_data_size);
         nca_header.fs_headers[1].romfs_superblock.ivfc_header.level_headers[5].block_size = 0x0E; // 0x4000
 
+        // Compress: replace level 6's data with the compression layer.
+        if (settings->compress_level > 0)
+        {
+            filepath_t comp_layer_path;
+            filepath_init(&comp_layer_path);
+            filepath_copy(&comp_layer_path, &settings->temp_dir);
+            filepath_append(&comp_layer_path, "program_sec1_compressed");
+
+            uint64_t compressed_size = nca_build_section_compression(settings, &ivfc_lvls_path[5], &comp_layer_path, &nca_header.fs_headers[1]);
+            if (compressed_size == 0)
+            {
+                fprintf(stderr, "Failed to build NCA compression layer!\n");
+                exit(EXIT_FAILURE);
+            }
+
+            filepath_copy(&ivfc_lvls_path[5], &comp_layer_path);
+            nca_header.fs_headers[1].romfs_superblock.ivfc_header.level_headers[5].hash_data_size = compressed_size;
+        }
+
         // Create IVFC levels
         printf("\n===> Creating IVFC levels\n");
         for (int b = 4; b >= 0; b--)
@@ -308,12 +410,8 @@ void nca_create_program(hp_settings_t *settings)
             nca_header.fs_headers[1].romfs_superblock.ivfc_header.level_headers[i].logical_offset = nca_header.fs_headers[1].romfs_superblock.ivfc_header.level_headers[i - 1].logical_offset + nca_header.fs_headers[1].romfs_superblock.ivfc_header.level_headers[i - 1].hash_data_size;
 
         // Write IVFC levels
-        printf("\n===> Writing IVFC levels\n");
-        for (int c = 0; c < 6; c++)
-        {
-            printf("Writing %s to %s\n", ivfc_lvls_path[c].char_path, program_nca_path.char_path);
-            nca_write_file(program_nca_file, &ivfc_lvls_path[c]);
-        }
+        printf("\n===> Writing section 1 data\n");
+        nca_write_section_romfs(program_nca_file, ivfc_lvls_path);
 
         // Write Padding if required
         nca_write_padding(program_nca_file);

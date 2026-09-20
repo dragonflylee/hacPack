@@ -14,7 +14,7 @@ all:
 .c.o:
 	$(CC) $(INCLUDE) -c $(CFLAGS) -o $@ $<
 
-hacpack: sha.o aes.o extkeys.o pki.o utils.o main.o filepath.o ConvertUTF.o nca.o romfs.o pfs0.o ivfc.o nacp.o npdm.o cnmt.o ticket.o rsa.o
+hacpack: sha.o aes.o extkeys.o pki.o utils.o main.o filepath.o ConvertUTF.o nca.o bktr.o romfs.o pfs0.o ivfc.o nacp.o npdm.o cnmt.o ticket.o rsa.o lz4.o
 	$(CC) -o $@ $^ $(LDFLAGS) -L $(LIBDIR)
 
 aes.o: aes.h types.h
@@ -28,6 +28,10 @@ main.o: main.c pki.h types.h version.h
 pki.o: pki.h aes.h types.h
 
 nca.o: nca.h
+
+bktr.o: bktr.h nca.h ivfc.h utils.h
+
+lz4.o: lz4.h
 
 romfs.o: romfs.h
 
@@ -63,7 +67,7 @@ dist: clean_full
 		| cut -d' ' -f3 \
 		| sed -e 's/"//g'))
 	mkdir hacpack-$(HACPACKVER)
-	cp -R *.c *.h config.mk.template Makefile README.md LICENSE mbedtls hacpack-$(HACPACKVER)
+	cp -R *.c *.h config.mk.template Makefile README.md LICENSE mbedtls lz4.c lz4.h hacpack-$(HACPACKVER)
 	tar czf hacpack-$(HACPACKVER).tar.gz hacpack-$(HACPACKVER)
 	rm -r hacpack-$(HACPACKVER)
 

@@ -117,6 +117,7 @@ typedef struct
     uint32_t title_version;
     uint8_t has_title_key;
     uint8_t noselfsignncasig2;
+    int compress_level; /* NCA section compression level (0 = disabled, 1-3 = LZ4). */
     unsigned char title_key[0x10];
     unsigned char *keyareakey;
     int keygeneration;
