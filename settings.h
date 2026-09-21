@@ -115,6 +115,7 @@ typedef struct
     uint8_t plaintext;
     uint8_t digest[0x20];
     uint32_t title_version;
+    uint32_t required_system_version;
     uint8_t has_title_key;
     uint8_t noselfsignncasig2;
     int compress_level; /* NCA section compression level (0 = disabled, 1-3 = LZ4). */

@@ -61,6 +61,7 @@ static void usage(void)
             "Metadata NCA options:\n"
             "--titletype              Set cnmt title type [application, patch, addon, systemprogram, systemdata]\n"
             "--titleversion           Set title-version in hex with 4 bytes length, default value is 0x0\n"
+            "--systemversion          Set required-syste-version in hex with 8 bytes length, default value is 0x0\n"
             "--programnca             Set program nca path\n"
             "--controlnca             Set control nca path\n"
             "--legalnca               Set legal information nca path\n"
@@ -161,6 +162,7 @@ int main(int argc, char **argv)
                 {"ncasig2privatekey", 1, NULL, 31},
                 {"ncasig2modulus", 1, NULL, 32},
                 {"compress", 1, NULL, 33},
+                {"systemversion", 1, NULL, 34},
                 {NULL, 0, NULL, 0},
             };
 
@@ -354,6 +356,9 @@ int main(int argc, char **argv)
                 fprintf(stderr, "Invalid compress level: %i, compress level range: 0-3\n", settings.compress_level);
                 return EXIT_FAILURE;
             }
+            break;
+        case 34:
+            settings.required_system_version = strtoul(optarg, NULL, 16);
             break;
         default:
             usage();

@@ -53,6 +53,7 @@ void cnmt_create_application(filepath_t *cnmt_filepath, hp_settings_t *settings)
     cnmt_ctx.header.extended_header_size = 0x10;
     cnmt_ctx.header.content_entry_count = cnmt_ctx.content_records_count;
     cnmt_ext_header.patch_title_id = cnmt_ctx.header.title_id + 0x800;
+    cnmt_ext_header.required_system_version = settings->required_system_version;
 
     printf("Writing metadata header\n");
     FILE *cnmt_file;
