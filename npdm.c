@@ -81,6 +81,10 @@ void npdm_process(hp_settings_t *settings)
         exit(EXIT_FAILURE);
     }
 
+    // Tracks whether the ACID was re-signed after its public key was patched,
+    // so a self-patched modulus does not leave a stale (unverifiable) ACID.
+    int acid_needs_selfsign = 0;
+
     if ((settings->noselfsignncasig2 == 0) || (settings->nca_sig2_modulus.valid == VALIDITY_VALID))
     {
         // Copy main.npdm to backup directory
@@ -119,20 +123,34 @@ void npdm_process(hp_settings_t *settings)
             fwrite(modulus, 1, 0x100, fl);
         }
         else
+        {
             fwrite(rsa_get_acid_public_key(), 1, 0x100, fl);
+            acid_needs_selfsign = (settings->acid_sig_private_key.valid != VALIDITY_VALID);
+        }
     }
 
-    if (settings->acid_sig_private_key.valid == VALIDITY_VALID)
+    if ((settings->acid_sig_private_key.valid == VALIDITY_VALID) || acid_needs_selfsign)
     {
         printf("Signing ACID\n");
         fseeko(fl, npdm.acid_offset + 0x100, SEEK_SET);
+        // The ACID signature covers the body after the 0x100-byte signature
+        // field. acid.size is the signed body size (0x204 in the ACID),
+        // i.e. total ACID size minus the signature.
         unsigned char *acid_buff = (unsigned char *)malloc(acid.size);
+        if (acid_buff == NULL)
+        {
+            fprintf(stderr, "Failed to allocate ACID signing buffer!\n");
+            exit(EXIT_FAILURE);
+        }
         if (fread(acid_buff, 1, acid.size, fl) != acid.size)
         {
             fprintf(stderr, "Failed to read NPDM!\n");
             exit(EXIT_FAILURE);
         }
-        rsa_sign_with_file(acid_buff, acid.size, acid.signature, 0x100, settings->acid_sig_private_key.char_path);
+        if (settings->acid_sig_private_key.valid == VALIDITY_VALID)
+            rsa_sign_with_file(acid_buff, acid.size, acid.signature, 0x100, settings->acid_sig_private_key.char_path);
+        else
+            rsa_sign(acid_buff, acid.size, acid.signature, 0x100, (char *)rsa_get_acid_private_key());
         fseeko(fl, npdm.acid_offset, SEEK_SET);
         fwrite(acid.signature, 1, 0x100, fl);
         free(acid_buff);
