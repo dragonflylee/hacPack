@@ -51,22 +51,28 @@ static uint64_t nca_build_section_compression(hp_settings_t *settings, filepath_
     nca_compress_write(&result, layer_file, &settings->temp_dir, fs_header, result.table_offset, result.entry_data_size);
 
     fseeko64(layer_file, 0, SEEK_END);
-    uint64_t compressed_size = (uint64_t)ftello64(layer_file);
+    uint64_t layer_size = (uint64_t)ftello64(layer_file);
 
-    /* Pad to a 0x4000 multiple so level-4 hashes cover full blocks. The
-     * reported level-6 size stays the unpadded compressed size. */
-    uint64_t padding_size = NCA_COMPRESS_BLOCK_SIZE - (compressed_size % NCA_COMPRESS_BLOCK_SIZE);
+    /* Pad the layer to a 0x4000 multiple and report that size as the level-6
+     * size, so it matches the range ivfc_create_level() hashes. */
+    uint64_t padding_size = NCA_COMPRESS_BLOCK_SIZE - (layer_size % NCA_COMPRESS_BLOCK_SIZE);
     if (padding_size != NCA_COMPRESS_BLOCK_SIZE)
     {
         unsigned char *padding = (unsigned char *)calloc(1, (size_t)padding_size);
+        if (padding == NULL)
+        {
+            fprintf(stderr, "Failed to allocate compression padding!\n");
+            exit(EXIT_FAILURE);
+        }
         fwrite(padding, 1, (size_t)padding_size, layer_file);
         free(padding);
+        layer_size += padding_size;
     }
 
     fclose(layer_file);
 
     nca_compress_result_free(&result);
-    return compressed_size;
+    return layer_size;
 }
 
 /* Writes the section's IVFC level files (levels 1-6) to the NCA, in order. */

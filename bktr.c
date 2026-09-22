@@ -171,8 +171,17 @@ int nca_compress_build(FILE *src, uint64_t data_size, int level, filepath_t *tem
         uint32_t compressed_size = compress_block(data, block_size, compression_type, compression_level, compressed, comp_capacity);
         if (block_is_zero(data, block_size))
         {
-            /* Fully-zeroed block: store no physical data (ZEROED). */
-            physical_sizes[i] = 0;
+            /* Store zeroed blocks verbatim (NONE, phys_size == vlen). eden only
+             * accepts a ZEROED entry with phys_size == 0 when it is an isolated
+             * zero run; otherwise it requires phys_size != 0. */
+            if (fwrite(data, 1, block_size, entry_file) != block_size)
+            {
+                fprintf(stderr, "Error: Failed to write zeroed entry!\n");
+                ok = 0;
+                break;
+            }
+            physical_sizes[i] = (uint32_t)block_size;
+            physical_offset += block_size;
         }
         else if (compressed_size != 0)
         {
@@ -247,12 +256,7 @@ int nca_compress_build(FILE *src, uint64_t data_size, int level, filepath_t *tem
                 entries[j].reserved[0] = 0;
                 entries[j].reserved[1] = 0;
                 entries[j].reserved[2] = 0;
-                if (phys_size == 0)
-                {
-                    entries[j].compression_type = COMPRESS_TYPE_ZEROED;
-                    entries[j].physical_size = 0;
-                }
-                else if (phys_size == vlen)
+                if (phys_size == vlen)
                 {
                     /* Stored verbatim (also covers the final partial block). */
                     entries[j].compression_type = COMPRESS_TYPE_NONE;
